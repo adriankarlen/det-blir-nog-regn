@@ -1,7 +1,7 @@
 # det-blir-nog-regn
 
 <div align="center">
-  <img src="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3dyMzZlc2p6cmpxam1qNWJoMXRxdnBuYmdiZTc1aWQ5anhqenB0NyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/2vqaiPr1TrevmxCPUV/giphy.gif" />
+  <img src="./assets/were-all-going-to-die.gif" />
 </div>
 
 _Because of course it's going to rain. This is Sweden._
