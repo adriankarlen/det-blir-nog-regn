@@ -1,4 +1,4 @@
-module det-blir-nog-regn
+module github.com/adriankarlen/det-blir-nog-regn
 
 go 1.23.0
 
