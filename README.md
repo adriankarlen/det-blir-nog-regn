@@ -1,4 +1,4 @@
-# det-blir-nog-regn
+# det blir nog regn
 
 <div align="center">
   <img src="./assets/were-all-going-to-die.gif" />
