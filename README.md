@@ -17,11 +17,19 @@ go run main.go
 Saves two files in the current directory:
 
 - `vader_YYYY-MM-DD.jpg` — today's weather map
-- `vader_YYYY-MM-DD.txt` — the article heading and the paragraph under **I DAG**
+- `vader_YYYY-MM-DD.txt` — the article heading and the paragraph under **I DAG** or **I KVÄLL**
+
+Which map you get depends on the time of day (Swedish time):
+
+- before 13:00: **I DAG**
+- from 13:00: **I KVÄLL** (SVT removes the I DAG section during the afternoon)
+
+If the preferred section is missing, the other one is used instead.
 
 The summary is also printed to the terminal:
 
 ```text
+section: I DAG
 saved: vader_2026-10-09.jpg
 saved: vader_2026-10-09.txt
 

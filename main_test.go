@@ -68,34 +68,73 @@ func TestParseImgSrc(t *testing.T) {
 	}
 }
 
-func TestFindIdagImage(t *testing.T) {
+func TestFindSectionImage(t *testing.T) {
 	tests := []struct {
 		name string
 		html string
+		sec  section
 		want string
 	}{
 		{
-			"full structure",
+			"i dag",
 			`<html><body><div id="i-dag-0"><noscript><img src="https://svt.se/weather.jpg"></noscript></div></body></html>`,
+			sectionIdag,
 			"https://svt.se/weather.jpg",
+		},
+		{
+			"i kväll at any position",
+			`<html><body><div id="i-dag-0"><noscript><img src="https://svt.se/dag.jpg"></noscript></div>` +
+				`<div id="i-kvall-1"><noscript><img src="https://svt.se/kvall.jpg"></noscript></div></body></html>`,
+			sectionIkvall,
+			"https://svt.se/kvall.jpg",
 		},
 		{
 			"missing div",
 			`<html><body><div id="other"><noscript><img src="https://x.com/y.jpg"></noscript></div></body></html>`,
+			sectionIdag,
 			"",
 		},
 		{
 			"no noscript",
 			`<html><body><div id="i-dag-0"><p>hello</p></div></body></html>`,
+			sectionIdag,
 			"",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
-			got := findIdagImage(doc)
+			got := findSectionImage(doc, tt.sec)
 			if got != tt.want {
-				t.Errorf("findIdagImage() = %q, want %q", got, tt.want)
+				t.Errorf("findSectionImage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSectionsFor(t *testing.T) {
+	stockholm, err := time.LoadLocation("Europe/Stockholm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		now  time.Time
+		want section
+	}{
+		{"morning CET", time.Date(2026, 11, 16, 9, 0, 0, 0, stockholm), sectionIdag},
+		{"12:59 CET", time.Date(2026, 11, 16, 12, 59, 0, 0, stockholm), sectionIdag},
+		{"13:00 CET", time.Date(2026, 11, 16, 13, 0, 0, 0, stockholm), sectionIkvall},
+		{"13:00 CEST", time.Date(2026, 6, 16, 13, 0, 0, 0, stockholm), sectionIkvall},
+		// 11:30 UTC is 13:30 CEST: the cutoff follows Swedish time, not the machine's.
+		{"UTC input", time.Date(2026, 6, 16, 11, 30, 0, 0, time.UTC), sectionIkvall},
+		{"UTC input morning", time.Date(2026, 6, 16, 10, 30, 0, 0, time.UTC), sectionIdag},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sectionsFor(tt.now)
+			if len(got) != 2 || got[0] != tt.want || got[1] == tt.want {
+				t.Errorf("sectionsFor() = %v, want %v first with the other as fallback", got, tt.want)
 			}
 		})
 	}
@@ -148,10 +187,11 @@ func TestFindHeadline(t *testing.T) {
 	}
 }
 
-func TestFindIdagParagraph(t *testing.T) {
+func TestFindSectionParagraph(t *testing.T) {
 	tests := []struct {
 		name string
 		html string
+		sec  section
 		want string
 	}{
 		{
@@ -159,29 +199,40 @@ func TestFindIdagParagraph(t *testing.T) {
 			`<div id="i-dag-0"><h2>I DAG</h2><div><div><p>Sol i väst. </p></div>` +
 				`<figure><noscript><img src="https://svt.se/x.jpg"></noscript></figure></div></div>` +
 				`<div id="i-kvall-1"><h2>I KVÄLL</h2><div><p>Regn.</p></div></div>`,
+			sectionIdag,
 			"Sol i väst.",
+		},
+		{
+			"i kväll",
+			`<div id="i-dag-0"><h2>I DAG</h2><div><p>Sol.</p></div></div>` +
+				`<div id="i-kvall-1"><h2>I KVÄLL</h2><div><p>Regn.</p></div></div>`,
+			sectionIkvall,
+			"Regn.",
 		},
 		{
 			"without i-dag-0 wrapper",
 			`<p>Ingress</p><h2>I DAG</h2><p>Blåsigt.</p>`,
+			sectionIdag,
 			"Blåsigt.",
 		},
 		{
 			"missing h2",
 			`<div id="i-dag-0"><p>Sol.</p></div>`,
+			sectionIdag,
 			"",
 		},
 		{
 			"missing p before next section",
 			`<h2>I DAG</h2><div></div><h2>I KVÄLL</h2><p>Regn.</p>`,
+			sectionIdag,
 			"",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			doc, _ := html.Parse(strings.NewReader(tt.html))
-			if got := findIdagParagraph(doc); got != tt.want {
-				t.Errorf("findIdagParagraph() = %q, want %q", got, tt.want)
+			if got := findSectionParagraph(doc, tt.sec); got != tt.want {
+				t.Errorf("findSectionParagraph() = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	_ "time/tzdata" // Europe/Stockholm must resolve even without system zoneinfo
+
 	"golang.org/x/net/html"
 )
 
@@ -18,7 +20,36 @@ const (
 	svtVaderURL    = "https://www.svt.se/vader/vader-idag"
 	requestTimeout = 15 * time.Second
 	userAgent      = "det-blir-nog-regn/1.0 (weather image fetcher)"
+
+	// From this hour (Swedish time) the I KVÄLL map is preferred over I DAG.
+	// SVT drops the I DAG section during the afternoon.
+	eveningFromHour = 13
 )
+
+// section is one forecast block on the page, e.g. <div id="i-dag-0"><h2>I DAG</h2>.
+// The number after the id prefix is the block's position and changes during the day.
+type section struct {
+	idPrefix string
+	heading  string
+}
+
+var (
+	sectionIdag   = section{idPrefix: "i-dag-", heading: "I DAG"}
+	sectionIkvall = section{idPrefix: "i-kvall-", heading: "I KVÄLL"}
+)
+
+// sectionsFor returns the sections to try, in order, for the given time:
+// I DAG before eveningFromHour Swedish time, otherwise I KVÄLL. The other
+// section is kept as a fallback in case the preferred one is missing.
+func sectionsFor(now time.Time) []section {
+	if loc, err := time.LoadLocation("Europe/Stockholm"); err == nil {
+		now = now.In(loc)
+	}
+	if now.Hour() < eveningFromHour {
+		return []section{sectionIdag, sectionIkvall}
+	}
+	return []section{sectionIkvall, sectionIdag}
+}
 
 func main() {
 	outputDir := flag.String("output-dir", ".", "Directory to save the image")
@@ -39,12 +70,21 @@ func run(ctx context.Context, outputDir string) error {
 		return err
 	}
 
-	imgURL := findIdagImage(doc)
-	if imgURL == "" {
-		return fmt.Errorf("could not find weather image: div#i-dag-0 or <noscript> img not found in page structure")
+	now := time.Now()
+	var sec section
+	var imgURL string
+	for _, candidate := range sectionsFor(now) {
+		if imgURL = findSectionImage(doc, candidate); imgURL != "" {
+			sec = candidate
+			break
+		}
 	}
+	if imgURL == "" {
+		return fmt.Errorf("could not find weather image: no div#i-dag-*/div#i-kvall-* with a <noscript> img in page structure")
+	}
+	fmt.Printf("section: %s\n", sec.heading)
 
-	base := outputBase(outputDir, time.Now())
+	base := outputBase(outputDir, now)
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("creating output dir: %w", err)
@@ -57,9 +97,9 @@ func run(ctx context.Context, outputDir string) error {
 	// The summary is a nice-to-have: a missing piece of text should not
 	// fail the run once the image has been saved.
 	headline := findHeadline(doc)
-	paragraph := findIdagParagraph(doc)
+	paragraph := findSectionParagraph(doc, sec)
 	if headline == "" || paragraph == "" {
-		fmt.Fprintf(os.Stderr, "warning: could not find summary text (headline found: %t, I DAG paragraph found: %t)\n", headline != "", paragraph != "")
+		fmt.Fprintf(os.Stderr, "warning: could not find summary text (headline found: %t, %s paragraph found: %t)\n", headline != "", sec.heading, paragraph != "")
 		return nil
 	}
 
@@ -163,10 +203,10 @@ func findHeadline(doc *html.Node) string {
 	return ""
 }
 
-// findIdagParagraph finds the <h2>I DAG</h2> heading (inside div#i-dag-0 when
+// findSectionParagraph finds the section's <h2> heading (inside its div when
 // present) and returns the text of the first <p> that follows it.
-func findIdagParagraph(doc *html.Node) string {
-	scope := findNodeByID(doc, "i-dag-0")
+func findSectionParagraph(doc *html.Node, sec section) string {
+	scope := findNodeByIDPrefix(doc, sec.idPrefix)
 	if scope == nil {
 		scope = doc
 	}
@@ -178,7 +218,7 @@ func findIdagParagraph(doc *html.Node) string {
 		if n.Type == html.ElementNode {
 			switch {
 			case n.Data == "h2" && !seenHeading:
-				if strings.EqualFold(normalizeSpace(extractText(n)), "I DAG") {
+				if strings.EqualFold(normalizeSpace(extractText(n)), sec.heading) {
 					seenHeading = true
 					return false // skip the heading's own children
 				}
@@ -243,14 +283,21 @@ func normalizeSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// findIdagImage walks the HTML tree, finds div#i-dag-0, then extracts
+// findSectionImage finds the section's div (e.g. div#i-dag-0), then extracts
 // the first real image URL from a <noscript> fallback img tag within it.
-func findIdagImage(doc *html.Node) string {
-	idagDiv := findNodeByID(doc, "i-dag-0")
-	if idagDiv == nil {
+func findSectionImage(doc *html.Node, sec section) string {
+	div := findNodeByIDPrefix(doc, sec.idPrefix)
+	if div == nil {
 		return ""
 	}
-	return findNoscriptImgSrc(idagDiv)
+	return findNoscriptImgSrc(div)
+}
+
+// findNodeByIDPrefix returns the first element whose id starts with prefix.
+func findNodeByIDPrefix(doc *html.Node, prefix string) *html.Node {
+	return findNode(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && strings.HasPrefix(attr(n, "id"), prefix)
+	})
 }
 
 // findNodeByID performs a depth-first search for a node with the given id attribute.
